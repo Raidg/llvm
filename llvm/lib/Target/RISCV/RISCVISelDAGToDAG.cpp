@@ -119,6 +119,61 @@ void RISCVDAGToDAGISel::PreprocessISelDAG() {
                                            MachineMemOperand::MOLoad);
       break;
     }
+    case ISD::FSQRT: {
+      if (N->getOperand(0).getValueType().isVector()) {
+        EVT InputVectorType = N->getOperand(0).getValueType();
+        
+        MVT target_register_size = MVT::i32;
+
+        if (Subtarget->is64Bit()) 
+          target_register_size = MVT::i64;
+
+        
+
+        MVT VT = N->getOperand(0).getSimpleValueType();
+        SDValue inputVector = N->getOperand(0);
+        
+        MachineFunction &MF = CurDAG->getMachineFunction();
+        SDLoc DL(N);
+
+        int vector_element_size = InputVectorType.getVectorElementType().getStoreSize();
+        int amount_of_ops_to_do = InputVectorType.getVectorElementCount().getFixedValue();
+
+        MVT float_size = MVT::f64;
+        if (vector_element_size == 4)
+          float_size = MVT::f32;
+        
+        // Create temporary stack for each expanding node.
+        SDValue StackPointer =
+        CurDAG->CreateStackTemporary(TypeSize::getFixed(vector_element_size*amount_of_ops_to_do), llvm::Align(8));
+        int FI = cast<FrameIndexSDNode>(StackPointer.getNode())->getIndex();
+        MachinePointerInfo MPI = MachinePointerInfo::getFixedStack(MF, FI);
+        
+        
+        SDValue Chain = CurDAG->getEntryNode();
+        Chain = CurDAG->getStore(Chain, DL, inputVector, StackPointer, MPI, Align(8)); // Stores vector to stack
+
+
+        SDValue SizeOfOperands = CurDAG->getConstant(vector_element_size, DL, target_register_size);
+
+        SDValue ValueToOperateOn;
+        SDValue Address;
+        SDValue SQRT;
+        SDValue NumOfOpsToDo;
+
+        for (int i = 0; i < amount_of_ops_to_do; i++) {
+          NumOfOpsToDo     = CurDAG->getConstant(vector_element_size*i, DL, target_register_size);
+          Address          = CurDAG->getNode(ISD::ADD,   DL, target_register_size, StackPointer, NumOfOpsToDo);
+          ValueToOperateOn = CurDAG->getLoad(float_size, DL, Chain, Address, MPI);
+          SQRT             = CurDAG->getNode(ISD::FSQRT, DL, float_size, ValueToOperateOn);
+          Chain            = CurDAG->getStore(Chain,     DL, SQRT, Address, MPI, Align(8));
+        }
+        
+        SDValue LoadVectorBack = CurDAG->getLoad(VT, DL, Chain, StackPointer, MPI); // Retrieves vector with modified elements
+
+        Result = LoadVectorBack;
+      }
+    }
     }
 
     if (Result) {
