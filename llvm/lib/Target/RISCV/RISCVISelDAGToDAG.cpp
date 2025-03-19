@@ -120,47 +120,45 @@ void RISCVDAGToDAGISel::PreprocessISelDAG() {
       break;
     }
     case ISD::FSQRT: {
-      if (N->getOperand(0).getValueType().isVector()) {
+      if (N->getOperand(0).getValueType().isVector() && Subtarget->hasDisZvVfsqrtV()) {
+        // Setup types:
         EVT InputVectorType = N->getOperand(0).getValueType();
         
         MVT target_register_size = MVT::i32;
-
         if (Subtarget->is64Bit()) 
           target_register_size = MVT::i64;
-
-        
-
-        MVT VT = N->getOperand(0).getSimpleValueType();
-        SDValue inputVector = N->getOperand(0);
-        
-        MachineFunction &MF = CurDAG->getMachineFunction();
+          
         SDLoc DL(N);
-
+        
+        // given say MVT::nxv2f64, then amount_of_ops_to_do = 2 and vector_element_size = 8 (64 bits = 8 * bytes)
         int vector_element_size = InputVectorType.getVectorElementType().getStoreSize();
         int amount_of_ops_to_do = InputVectorType.getVectorElementCount().getFixedValue();
-
+        
         MVT float_size = MVT::f64;
         if (vector_element_size == 4)
           float_size = MVT::f32;
-        
+          
         // Create temporary stack for each expanding node.
+        MachineFunction &MF = CurDAG->getMachineFunction();
         SDValue StackPointer =
         CurDAG->CreateStackTemporary(TypeSize::getFixed(vector_element_size*amount_of_ops_to_do), llvm::Align(8));
         int FI = cast<FrameIndexSDNode>(StackPointer.getNode())->getIndex();
         MachinePointerInfo MPI = MachinePointerInfo::getFixedStack(MF, FI);
-        
-        
+
+        SDValue inputVector = N->getOperand(0);
         SDValue Chain = CurDAG->getEntryNode();
-        Chain = CurDAG->getStore(Chain, DL, inputVector, StackPointer, MPI, Align(8)); // Stores vector to stack
-
-
-        SDValue SizeOfOperands = CurDAG->getConstant(vector_element_size, DL, target_register_size);
+        
+        // Store vector to stack:
+        Chain = CurDAG->getStore(Chain, DL, inputVector, StackPointer, MPI, Align(8));
 
         SDValue ValueToOperateOn;
         SDValue Address;
         SDValue SQRT;
         SDValue NumOfOpsToDo;
 
+        // replace the vextor instruction with a load of each vector element, then the operation 
+        // is performed on each element, before finally is stored back to the right position in 
+        // the vector.
         for (int i = 0; i < amount_of_ops_to_do; i++) {
           NumOfOpsToDo     = CurDAG->getConstant(vector_element_size*i, DL, target_register_size);
           Address          = CurDAG->getNode(ISD::ADD,   DL, target_register_size, StackPointer, NumOfOpsToDo);
@@ -169,8 +167,10 @@ void RISCVDAGToDAGISel::PreprocessISelDAG() {
           Chain            = CurDAG->getStore(Chain,     DL, SQRT, Address, MPI, Align(8));
         }
         
-        SDValue LoadVectorBack = CurDAG->getLoad(VT, DL, Chain, StackPointer, MPI); // Retrieves vector with modified elements
+        // Loads the individual elements back into the vector
+        SDValue LoadVectorBack = CurDAG->getLoad(InputVectorType, DL, Chain, StackPointer, MPI); 
 
+        // Continue as if nothing happened
         Result = LoadVectorBack;
       }
     }

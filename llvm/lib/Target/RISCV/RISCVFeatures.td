@@ -1526,3 +1526,18 @@ def FeatureDisZbaSlliUw
 def HasZbaSlliUw : Predicate<enable_instruction<"SlliUw", "Zba">.out>,
                 AssemblerPredicate<(any_of FeatureStdExtZba, FeatureEnaZbaSlliUw),
                 "'Zba' (Address Generation Instructions)">;
+
+//===----------------------------------------------------------------------===//
+// vfsqrt.v
+defvar zv_VfsqrtV_description = "Unary vector-vector sqrt-instruction.";
+defvar zv_VfsqrtV_summary = "'V vfsqrt.v ";
+
+def FeatureEnaZvVfsqrtV
+    : RISCVExtension<instr_march_name<"zv", "vfsqrtv", "e">.out,
+                     1, 0,
+                     !strconcat(zba_SlliUw_summary, "enable' ", zv_VfsqrtV_description)>;
+
+def FeatureDisZvVfsqrtV
+    : RISCVExtension<instr_march_name<"zv", "vfsqrtv", "d">.out,
+                     1, 0,
+                     !strconcat(zba_SlliUw_summary, "enable' ", zv_VfsqrtV_description)>;
